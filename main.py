@@ -1,7 +1,9 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from kerykeion import AstrologicalSubject, KerykeionChartSVG
 from io import BytesIO
-from starlette.responses import StreamingResponse, JSONResponse
+from starlette.responses import StreamingResponse, JSONResponse, FileResponse
 import cairosvg
 import json
 
@@ -47,6 +49,17 @@ def make_svg(name: str, year: int, month: int, day: int, hour: int, minute: int,
     image_stream = BytesIO(image_data)
 
     return StreamingResponse(image_stream)
+
+
+@app.get("/make_full_svg")
+def make_svg(name: str, year: int, month: int, day: int, hour: int, minute: int, city: str):
+    kanye = AstrologicalSubject(name, year, month, day, hour, minute, city)
+
+    pic = KerykeionChartSVG(kanye, chart_type="Natal")
+    pic.set_output_directory(Path('./charts'))
+    pic.makeSVG()
+
+    return FileResponse(f'{str(pic.chartname)}')
 
 
 @app.get('/calculate')
