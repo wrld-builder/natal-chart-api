@@ -1,43 +1,52 @@
 from pathlib import Path
-
-from fastapi import FastAPI
 from kerykeion import AstrologicalSubject, KerykeionChartSVG
 from io import BytesIO
-from starlette.responses import StreamingResponse, JSONResponse, FileResponse
+from starlette.responses import StreamingResponse, FileResponse, Response
 import cairosvg
-import json
-
-
-class DataHelper:
-    @staticmethod
-    def zodiac_sign(day, month):
-        if (month == 3 and day >= 21) or (month == 4 and day <= 19):
-            return "Овен"
-        elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
-            return "Телец"
-        elif (month == 5 and day >= 21) or (month == 6 and day <= 20):
-            return "Близнецы"
-        elif (month == 6 and day >= 21) or (month == 7 and day <= 22):
-            return "Рак"
-        elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
-            return "Лев"
-        elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
-            return "Дева"
-        elif (month == 9 and day >= 23) or (month == 10 and day <= 22):
-            return "Весы"
-        elif (month == 10 and day >= 23) or (month == 11 and day <= 21):
-            return "Скорпион"
-        elif (month == 11 and day >= 22) or (month == 12 and day <= 21):
-            return "Стрелец"
-        elif (month == 12 and day >= 22) or (month == 1 and day <= 19):
-            return "Козерог"
-        elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
-            return "Водолей"
-        else:
-            return "Рыбы"
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, EmailStr
+import smtplib
+from email.mime.text import MIMEText
+import os
 
 
 app = FastAPI()
+
+
+class EmailSchema(BaseModel):
+    recipient: EmailStr
+    subject: str
+    message: str
+
+
+class UserInfo(BaseModel):
+    name: str
+    birth_time: str
+    birth_date: str
+    birth_city: str
+    email: EmailStr
+
+
+@app.post("/send-email/")
+def send_email(user_info: UserInfo, email: EmailSchema):
+    sender_email = os.environ.get('SENDER_EMAIL')
+    app_password = os.environ.get('SENDER_PASSWORD')
+
+    msg = MIMEText(f"Name: {user_info.name}\nBirth Time: {user_info.birth_time}\nBirth Date: {user_info.birth_date}\nBirth City: {user_info.birth_city}\n\n{email.message}")
+    msg['Subject'] = email.subject
+    msg['From'] = sender_email
+    msg['To'] = email.recipient
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, app_password)
+
+        server.sendmail(sender_email, email.recipient, msg.as_string())
+        server.quit()
+        return {"message": "Email sent successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
 
 @app.get("/make_svg")
@@ -62,11 +71,21 @@ def make_svg(name: str, year: int, month: int, day: int, hour: int, minute: int,
     return FileResponse(f'{str(pic.chartname)}')
 
 
-@app.get('/calculate')
-def calculate(name: str, year: int, month: int, day: int, hour: int, minute: int, city: str):
+@app.get("/get_svg_code")
+def make_svg(name: str, year: int, month: int, day: int, hour: int, minute: int, city: str):
     kanye = AstrologicalSubject(name, year, month, day, hour, minute, city)
 
-    kanye_data = json.loads(kanye.json(dump=False))
-    kanye_data['zodiac_sign'] = DataHelper.zodiac_sign(day, month)
+    pic = KerykeionChartSVG(kanye, chart_type="Natal")
 
-    return JSONResponse(kanye_data)
+    return Response(content=pic.template, media_type="image/svg+xml")
+
+
+@app.get("/download_full_svg")
+def make_svg(name: str, year: int, month: int, day: int, hour: int, minute: int, city: str):
+    kanye = AstrologicalSubject(name, year, month, day, hour, minute, city)
+
+    pic = KerykeionChartSVG(kanye, chart_type="Natal")
+    pic.set_output_directory(Path('./charts'))
+    pic.makeSVG()
+
+    return FileResponse(f'{str(pic.chartname)}', filename='natalchart.svg', media_type='application/octet-stream')

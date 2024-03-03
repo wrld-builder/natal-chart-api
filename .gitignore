@@ -3,3 +3,4 @@ __pycache__/
 cache/
 .idea/
 charts/
+new_settings.json
